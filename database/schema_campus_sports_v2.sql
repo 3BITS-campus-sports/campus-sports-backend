@@ -936,7 +936,8 @@ INSERT INTO users (full_name, email, phone_number, password_hash, role_type) VAL
 ('Sebastian Strugar',      'sebastian.strugar@student.ro', '0723333333', '$2b$10$PLACEHOLDER.HASH.DEMO', 'STUDENT'),
 ('Prof. Dan Popescu',      'dan.popescu@univ.ro',          '0744444444', '$2b$10$PLACEHOLDER.HASH.DEMO', 'PROFESSOR'),
 ('Mihai Ionescu',          'mihai.ionescu@gmail.com',      '0755555555', '$2b$10$PLACEHOLDER.HASH.DEMO', 'AMATEUR'),
-('Recepție Bază Sportivă', 'receptie@campussports.ro',     '0766666666', '$2b$10$PLACEHOLDER.HASH.DEMO', 'RECEPTIONIST');
+('Recepție Bază Sportivă', 'receptie@campussports.ro',     '0766666666', '$2b$10$PLACEHOLDER.HASH.DEMO', 'RECEPTIONIST'),
+('Administrator Campus',   'admin@campussports.ro',        '0777777777', '$2b$10$PLACEHOLDER.HASH.DEMO', 'ADMIN');
 
 INSERT INTO student_profiles (user_id, matricol_number, faculty, study_year)
 SELECT u.user_id, v.mat, 'Facultatea de Inginerie Electrică și Știința Calculatoarelor', 3
