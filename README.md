@@ -54,9 +54,7 @@ campus-sports-backend/
    👉 **http://localhost:8080**  
    - **System:** PostgreSQL
    - **Server:** `db`
-   - **Username:** `campus_admin`
-   - **Password:** `campus2026!`
-   - **Database:** `campus_sports`
+   - **Username / Password / Database:** valorile din fișierul tău `.env`
 
 ### 2. Instalare și Verificare Tabele
 ```bash
