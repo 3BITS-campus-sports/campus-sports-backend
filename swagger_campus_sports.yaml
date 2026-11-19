@@ -32,6 +32,8 @@ security:
 tags:
   - name: Autentificare & Profil
     description: Înregistrare, autentificare, profil și setări utilizator
+  - name: Administrare Utilizatori
+    description: Listarea, adăugarea și actualizarea utilizatorilor din panoul Admin
   - name: Facilități Sportive & Hartă
     description: Explorarea terenurilor, bazinelor, saunelor și sălilor din campus
   - name: Rezervări & Orar
@@ -206,6 +208,102 @@ paths:
                 $ref: '#/components/schemas/Error'
         '401':
           $ref: '#/components/responses/Unauthorized'
+
+  /users:
+    get:
+      tags: [Administrare Utilizatori]
+      operationId: listUsers
+      summary: Listare utilizatori (panoul Admin)
+      description: Toți utilizatorii, cu datele de profil de student sau profesor. Hash-ul parolei nu este returnat.
+      responses:
+        '200':
+          description: Lista utilizatorilor
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminUser'
+    post:
+      tags: [Administrare Utilizatori]
+      operationId: createUser
+      summary: Adăugare utilizator (panoul Admin)
+      description: >
+        Creează utilizatorul și, pentru rolurile STUDENT, PROFESSOR și AMATEUR, profilul asociat,
+        într-o singură tranzacție. Parola este salvată criptată cu bcrypt.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminUserCreate'
+      responses:
+        '201':
+          description: Utilizator creat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+        '400':
+          description: Date lipsă sau invalide (cod VALIDATION)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Emailul este deja folosit (cod 23505)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /users/{id}:
+    put:
+      tags: [Administrare Utilizatori]
+      operationId: updateUser
+      summary: Actualizare utilizator (panoul Admin)
+      description: >
+        Actualizează doar câmpurile trimise. Parola nu se poate schimba prin această operație.
+        Un telefon trimis ca șir gol este șters.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+          example: 2
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminUserUpdate'
+      responses:
+        '200':
+          description: Utilizator actualizat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+        '400':
+          description: Id invalid, niciun câmp trimis sau date invalide (cod VALIDATION)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Utilizatorul nu există (cod SB404)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Emailul este deja folosit de alt utilizator (cod 23505)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   # ==========================================
   # 2. FACILITĂȚI SPORTIVE
@@ -819,6 +917,94 @@ components:
           enum: [STUDENT, PROFESSOR, AMATEUR, RECEPTIONIST, ADMIN]
         settings:
           $ref: '#/components/schemas/UserSettings'
+
+    AdminUser:
+      type: object
+      description: Utilizator așa cum apare în panoul Admin (câmpurile au numele coloanelor din baza de date).
+      properties:
+        user_id:
+          type: integer
+          example: 2
+        full_name:
+          type: string
+          example: Alexandra Andrieș
+        email:
+          type: string
+          example: alexandra.andries@student.ro
+        phone_number:
+          type: string
+          nullable: true
+          example: '0722222222'
+        role_type:
+          type: string
+          enum: [STUDENT, PROFESSOR, AMATEUR, RECEPTIONIST, ADMIN]
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        student_faculty:
+          type: string
+          nullable: true
+          description: Doar în GET, pentru studenți
+        student_year:
+          type: integer
+          nullable: true
+          description: Doar în GET, pentru studenți
+        matricol_number:
+          type: string
+          nullable: true
+          description: Doar în GET, pentru studenți
+        professor_department:
+          type: string
+          nullable: true
+          description: Doar în GET, pentru profesori
+        professor_title:
+          type: string
+          nullable: true
+          description: Doar în GET, pentru profesori
+
+    AdminUserCreate:
+      type: object
+      required: [full_name, email, password]
+      properties:
+        full_name:
+          type: string
+          example: Andrei Ionescu
+        email:
+          type: string
+          example: andrei.ionescu@student.ro
+        phone_number:
+          type: string
+          maxLength: 20
+          nullable: true
+          example: '0712345678'
+        password:
+          type: string
+          minLength: 8
+          example: ParolaSigura1
+        role_type:
+          type: string
+          enum: [STUDENT, PROFESSOR, AMATEUR, RECEPTIONIST, ADMIN]
+          default: STUDENT
+
+    AdminUserUpdate:
+      type: object
+      description: Cel puțin un câmp trebuie trimis.
+      properties:
+        full_name:
+          type: string
+        email:
+          type: string
+        phone_number:
+          type: string
+          maxLength: 20
+          nullable: true
+        role_type:
+          type: string
+          enum: [STUDENT, PROFESSOR, AMATEUR, RECEPTIONIST, ADMIN]
+        is_active:
+          type: boolean
 
     SportFacility:
       type: object
