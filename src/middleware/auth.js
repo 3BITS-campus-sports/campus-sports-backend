@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const jwtConfig = require('../config/jwt');
 
 // Middleware autentificare pentru dezvoltare & testare:
 // 1. Daca exista token Bearer in header, il valideaza cu JWT_SECRET
@@ -9,7 +10,8 @@ module.exports = function auth(req, res, next) {
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.split(' ')[1];
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret_usv_2026');
+      // Acelasi secret cu care /auth/login semneaza tokenul
+      const decoded = jwt.verify(token, jwtConfig.secret);
       req.user = decoded;
       return next();
     } catch (err) {
