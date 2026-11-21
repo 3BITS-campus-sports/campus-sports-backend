@@ -18,6 +18,7 @@ app.use('/api/v1/auth', require('./routes/auth'));
 app.use('/api/v1/facilities', require('./routes/facilities'));
 app.use('/api/v1/users', require('./routes/users'));
 app.use('/api/v1/bookings', require('./routes/bookings'));
+app.use('/api/v1/qr', require('./routes/qr'));
 
 // Endpoint de stare/healthcheck
 app.get('/api/health', (req, res) => {
