@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const router = require('express').Router();
 const sequelize = require('../db');
 const auth = require('../middleware/auth');
+const { createQrToken } = require('../services/qrToken');
 
 // Plata este simulata (MVP demonstrativ, ecranul 06): nu exista procesator real,
 // rezultatul platii vine din campul simulateResult trimis de interfata.
@@ -20,6 +21,14 @@ function requireToken(req, res, next) {
     return sendError(res, 401, 'UNAUTHORIZED', 'Trebuie să fii autentificat pentru a plăti.');
   }
   next();
+}
+
+// fn_confirm_booking genereaza un cod QR provizoriu; il inlocuim cu tokenul criptat (KAN-32),
+// in aceeasi tranzactie cu plata, ca rezervarea sa nu ramana niciodata confirmata cu codul provizoriu
+async function setEncryptedQrToken(bookingId, transaction) {
+  await sequelize.query('UPDATE qr_codes SET encrypted_payload = :token WHERE booking_id = :id', {
+    transaction, replacements: { id: bookingId, token: createQrToken(bookingId) },
+  });
 }
 
 function parseBookingId(value) {
@@ -94,6 +103,7 @@ router.post('/:id/pay', requireToken, auth, async (req, res, next) => {
         // Acces gratuit: nu exista tranzactie, rezervarea se confirma direct (cu cod QR)
         await sequelize.query('SELECT confirm_free_booking(:id)',
           { transaction: t, replacements: { id: bookingId } });
+        await setEncryptedQrToken(bookingId, t);
         return { status: 200, paymentRequired: false, transactionRef: null, amount };
       }
 
@@ -103,7 +113,11 @@ router.post('/:id/pay', requireToken, auth, async (req, res, next) => {
         transaction: t,
         replacements: { id: bookingId, method, ref: transactionRef, success: simulateResult === 'SUCCESS' },
       });
-      return { status: simulateResult === 'SUCCESS' ? 200 : 402, paymentRequired: true, transactionRef, amount };
+      if (simulateResult === 'FAILED') {
+        return { status: 402, paymentRequired: true, transactionRef, amount };
+      }
+      await setEncryptedQrToken(bookingId, t);
+      return { status: 200, paymentRequired: true, transactionRef, amount };
     });
 
     if (outcome.status === 404) {
