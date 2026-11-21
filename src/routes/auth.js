@@ -8,6 +8,9 @@ const jwtConfig = require('../config/jwt');
 const PUBLIC_ROLES = ['STUDENT', 'PROFESSOR', 'AMATEUR'];
 const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const MIN_PASSWORD_LENGTH = 8;
+// Parola trebuie sa contina cel putin o litera si o cifra (comentariu code review PR #4)
+const PASSWORD_LETTER = /[A-Za-zĂÂÎȘȚăâîșț]/;
+const PASSWORD_DIGIT = /\d/;
 const MAX_PHONE_LENGTH = 20;
 
 // Acelasi mesaj pentru email inexistent si parola gresita, ca sa nu aflam cine are cont
@@ -84,6 +87,8 @@ function validateRegister(body) {
   }
   if (typeof password !== 'string' || password.length < MIN_PASSWORD_LENGTH) {
     errors.push(`Parola trebuie să aibă minim ${MIN_PASSWORD_LENGTH} caractere.`);
+  } else if (!PASSWORD_LETTER.test(password) || !PASSWORD_DIGIT.test(password)) {
+    errors.push('Parola trebuie să conțină cel puțin o literă și o cifră.');
   }
   if (phone !== undefined && phone !== null && phone !== '' &&
       (typeof phone !== 'string' || phone.length > MAX_PHONE_LENGTH)) {
@@ -124,7 +129,8 @@ router.post('/register', async (req, res, next) => {
     `, {
       replacements: {
         fullName: fullName.trim(),
-        email: email.trim(),
+        // Emailul se salveaza mereu cu litere mici (comentariu code review PR #4)
+        email: email.trim().toLowerCase(),
         phone: phone ? phone.trim() : null,
         passwordHash,
         roleType,
