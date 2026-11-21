@@ -84,8 +84,22 @@ paths:
                     type: string
                   user:
                     $ref: '#/components/schemas/User'
+        '400':
+          description: Email sau parolă lipsă (cod VALIDATION)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '401':
-          description: Credențiale invalide
+          description: >
+            Credențiale invalide (cod UNAUTHORIZED). Același mesaj pentru email inexistent
+            și parolă greșită, ca să nu se poată afla ce emailuri au cont.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Contul este dezactivat (cod SB403)
           content:
             application/json:
               schema:

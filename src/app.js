@@ -14,6 +14,7 @@ app.use(cors({
 app.use(express.json());
 
 // Rute API
+app.use('/api/v1/auth', require('./routes/auth'));
 app.use('/api/v1/facilities', require('./routes/facilities'));
 app.use('/api/v1/users', require('./routes/users'));
 app.use('/api/v1/bookings', require('./routes/bookings'));
