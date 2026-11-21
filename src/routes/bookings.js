@@ -50,32 +50,92 @@ function validatePayBody(body) {
   return { errors, method, simulateResult };
 }
 
+// Validare date rezervare (KAN-30)
+function validateBookingBody(body) {
+  const errors = [];
+  const { facilityId, bookingDate, startTime, endTime, seats } = body;
+
+  const fid = Number(facilityId);
+  if (!facilityId || !Number.isInteger(fid) || fid <= 0) {
+    errors.push('Id-ul facilității este obligatoriu și trebuie să fie un număr pozitiv.');
+  }
+  if (!bookingDate && (!startTime || typeof startTime !== 'string' || !startTime.includes('T'))) {
+    errors.push('Data rezervării este obligatorie (format AAAA-LL-ZZ).');
+  }
+  if (!startTime || typeof startTime !== 'string') {
+    errors.push('Ora de început este obligatorie.');
+  }
+  if (!endTime || typeof endTime !== 'string') {
+    errors.push('Ora de sfârșit este obligatorie.');
+  }
+  if (seats !== undefined && (!Number.isInteger(Number(seats)) || Number(seats) < 1)) {
+    errors.push('Numărul de locuri rezervate trebuie să fie cel puțin 1.');
+  }
+  return errors;
+}
+
+// POST /api/v1/bookings - Creare rezervare noua cu salvare in PostgreSQL (KAN-30)
 router.post('/', auth, async (req, res, next) => {
+  const validationErrors = validateBookingBody(req.body ?? {});
+  if (validationErrors.length > 0) {
+    return sendError(res, 400, 'VALIDATION', validationErrors.join(' '));
+  }
+
   try {
     const { facilityId, bookingDate, startTime, endTime, seats, reminderEnabled, equipment } = req.body;
+    const userId = req.user?.id || 1;
 
     const bookingId = await sequelize.transaction(async (t) => {
+      // Daca startTime/endTime sunt timestamp-uri ISO complete sau ore locale (HH:MM)
+      const isIso = typeof startTime === 'string' && startTime.includes('T');
+      const startExpr = isIso 
+        ? 'CAST(:start AS timestamptz)' 
+        : "(CAST(:d AS date) + CAST(:s AS time)) AT TIME ZONE 'Europe/Bucharest'";
+      const endExpr = isIso 
+        ? 'CAST(:end AS timestamptz)' 
+        : "(CAST(:d AS date) + CAST(:e AS time)) AT TIME ZONE 'Europe/Bucharest'";
+
       const [[{ booking_id }]] = await sequelize.query(
-        `SELECT create_booking(:u, :f,
-           (CAST(:d AS date) + CAST(:s AS time)) AT TIME ZONE 'Europe/Bucharest',
-           (CAST(:d AS date) + CAST(:e AS time)) AT TIME ZONE 'Europe/Bucharest',
-           :seats, :rem) AS booking_id`,
-        { transaction: t,
-          replacements: { u: req.user.id, f: facilityId, d: bookingDate, s: startTime, e: endTime,
-                          seats: seats ?? 1, rem: reminderEnabled ?? true } });
+        `SELECT create_booking(:u, :f, ${startExpr}, ${endExpr}, :seats, :rem) AS booking_id`,
+        {
+          transaction: t,
+          replacements: {
+            u: userId,
+            f: Number(facilityId),
+            d: bookingDate || null,
+            s: isIso ? null : startTime,
+            e: isIso ? null : endTime,
+            start: isIso ? startTime : null,
+            end: isIso ? endTime : null,
+            seats: seats ? Number(seats) : 1,
+            rem: reminderEnabled ?? true,
+          },
+        }
+      );
 
       for (const eq of equipment ?? []) {
-        await sequelize.query(
-          'INSERT INTO booking_equipment (booking_id, equipment_id, quantity) VALUES (:b, :e, :q)',
-          { transaction: t, replacements: { b: booking_id, e: eq.equipmentId, q: eq.quantity } });
+        if (eq.equipmentId && eq.quantity > 0) {
+          await sequelize.query(
+            'INSERT INTO booking_equipment (booking_id, equipment_id, quantity) VALUES (:b, :e, :q)',
+            {
+              transaction: t,
+              replacements: { b: booking_id, e: eq.equipmentId, q: eq.quantity },
+            }
+          );
+        }
       }
       return booking_id;
     });
 
     const [[booking]] = await sequelize.query(
-      'SELECT * FROM v_booking_details WHERE booking_id = :id', { replacements: { id: bookingId } });
-    res.status(201).json(booking);   // fără QR: qr_payload e NULL până la plată
-  } catch (e) { next(e); }
+      'SELECT * FROM v_booking_details WHERE booking_id = :id',
+      { replacements: { id: bookingId } }
+    );
+
+    res.status(201).json(booking);
+  } catch (e) {
+    next(e);
+  }
 });
 
 // POST /bookings/:id/pay - plata simulata; la succes rezervarea devine CONFIRMED si primeste cod QR
