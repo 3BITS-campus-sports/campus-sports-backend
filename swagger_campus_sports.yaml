@@ -403,8 +403,20 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/Slot'
+        '400':
+          description: Id invalid sau parametrul date lipsă / invalid (cod VALIDATION)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '401':
-          $ref: '#/components/responses/Unauthorized'
+          description: >
+            Token invalid sau expirat. Tokenul este opțional: fără el se văd intervalele,
+            dar overlapsOwnBooking este mereu false.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '404':
           description: Facilitate inexistentă sau inactivă
           content:
@@ -1120,6 +1132,14 @@ components:
           type: string
           format: date-time
           example: "2026-11-03T11:00:00+02:00"
+        startLabel:
+          type: string
+          description: Ora de început în ora României, de afișat în interfață
+          example: "10:00"
+        endLabel:
+          type: string
+          description: Ora de sfârșit în ora României
+          example: "11:00"
         capacity:
           type: integer
           example: 10
