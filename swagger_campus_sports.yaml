@@ -646,13 +646,15 @@ paths:
     post:
       tags: [Plăți Online]
       operationId: payBooking
-      summary: Inițiere plată ("Confirmă și plătește")
+      summary: Plată simulată ("Confirmă și plătește")
       description: >
-        Dacă totalul este mai mare ca 0, creează tranzacția `PENDING` la procesator și trece rezervarea în
-        `PENDING_PAYMENT`; confirmarea vine prin `POST /payments/webhook`. Poate fi apelat din nou după o plată
-        eșuată ("Reîncearcă plata") cât timp nu au trecut cele 5 minute. Dacă totalul este 0 (acces gratuit),
-        rezervarea se confirmă imediat și se generează codul QR.
-        Pe serverul de dezvoltare, câmpul `simulateResult` simulează răspunsul procesatorului (MVP demonstrativ).
+        **MVP demonstrativ (KAN-53):** nu există un procesator real. Plata se înregistrează cu funcția
+        `register_payment`, iar rezultatul vine din câmpul `simulateResult` (implicit `SUCCESS`).
+        La succes rezervarea devine `CONFIRMED` și primește codul QR (`booking.qr_payload`).
+        La eșec (`simulateResult: FAILED`) răspunsul este 402, rezervarea rămâne `PENDING_PAYMENT`
+        și plata poate fi reîncercată ("Reîncearcă plata") cât timp nu au trecut cele 5 minute.
+        Dacă totalul este 0 (acces gratuit), rezervarea se confirmă imediat, fără tranzacție.
+        Doar proprietarul rezervării poate plăti; tokenul JWT este obligatoriu.
       parameters:
         - $ref: '#/components/parameters/BookingId'
       requestBody:
@@ -664,34 +666,50 @@ paths:
               properties:
                 method:
                   type: string
+                  enum: [CARD_ONLINE, APPLE_PAY, GOOGLE_PAY]
                   default: CARD_ONLINE
                 simulateResult:
                   type: string
                   enum: [SUCCESS, FAILED]
-                  description: Doar în Server Dezvoltare Locală
+                  default: SUCCESS
+                  description: Rezultatul simulat al plății (ecranele 07 și 06b). Ignorat la rezervările gratuite.
       responses:
         '200':
-          description: Sesiune de plată creată sau rezervare gratuită confirmată
+          description: Plată reușită sau rezervare gratuită confirmată; `booking.qr_payload` conține codul QR
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaymentSession'
         '400':
-          description: Au trecut cele 5 minute de blocare (SB400)
+          description: Id sau câmpuri invalide (VALIDATION) ori au trecut cele 5 minute de blocare (SB400)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '402':
+          description: Plată refuzată (PAYMENT_FAILED); rezervarea rămâne PENDING_PAYMENT și se poate reîncerca
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Error'
+                  - $ref: '#/components/schemas/PaymentSession'
+        '403':
+          description: Rezervarea aparține altui utilizator (FORBIDDEN)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '404':
-          description: Rezervare inexistentă
+          description: Rezervare inexistentă (NOT_FOUND)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '409':
-          description: Rezervarea nu mai așteaptă plata (SB409)
+          description: Rezervarea nu mai așteaptă plata - deja plătită, anulată sau expirată (SB409)
           content:
             application/json:
               schema:
@@ -1242,7 +1260,11 @@ components:
         qrCodePayload:
           type: string
           nullable: true
-          description: Null până la confirmarea plății și după anulare.
+          example: CSB1.JlIsoLEC981-RUR39Ef1VBh4LpLRCnqTFSBtheh9clZUYtQW_grOUgkyampnxCAM2Ow
+          description: >
+            Tokenul din codul QR (KAN-32): `CSB1.` urmat de date criptate cu AES-256-GCM (id-ul rezervării și
+            momentul emiterii), cu cheie derivată din `JWT_SECRET`. Nu poate fi citit sau modificat fără cheie.
+            Interfața desenează imaginea QR din acest text. Null până la confirmarea plății și după anulare.
         equipment:
           type: array
           items:
@@ -1259,11 +1281,12 @@ components:
         transactionRef:
           type: string
           nullable: true
-          example: pi_3Q1abc
+          example: SIM-3f2b6c1e-8d7a-4c2e-9b1f-2a6d5e4c3b21
+          description: Null pentru rezervările gratuite.
         clientSecret:
           type: string
           nullable: true
-          description: Secretul PaymentIntent pentru formularul de card (Stripe).
+          description: Secretul PaymentIntent pentru formularul de card (Stripe); null la plata simulată.
         amount:
           type: number
           example: 33
