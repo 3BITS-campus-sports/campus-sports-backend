@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const router = require('express').Router();
 const sequelize = require('../db');
-const auth = require('../middleware/auth');
+const { auth, requireAuth } = require('../middleware/auth');
 const { createQrToken } = require('../services/qrToken');
 
 // Plata este simulata (MVP demonstrativ, ecranul 06): nu exista procesator real,
@@ -12,15 +12,6 @@ const CURRENCY = 'RON';
 
 function sendError(res, status, code, message) {
   return res.status(status).json({ error: { code, message } });
-}
-
-// Plata cere un utilizator autentificat real: fara token nu folosim utilizatorul de test din middleware-ul auth
-function requireToken(req, res, next) {
-  const header = req.headers['authorization'];
-  if (!header || !header.startsWith('Bearer ')) {
-    return sendError(res, 401, 'UNAUTHORIZED', 'Trebuie să fii autentificat pentru a plăti.');
-  }
-  next();
 }
 
 // fn_confirm_booking genereaza un cod QR provizoriu; il inlocuim cu tokenul criptat (KAN-32),
@@ -75,7 +66,7 @@ function validateBookingBody(body) {
 }
 
 // POST /api/v1/bookings - Creare rezervare noua cu salvare in PostgreSQL (KAN-30)
-router.post('/', auth, async (req, res, next) => {
+router.post('/', requireAuth, async (req, res, next) => {
   const validationErrors = validateBookingBody(req.body ?? {});
   if (validationErrors.length > 0) {
     return sendError(res, 400, 'VALIDATION', validationErrors.join(' '));
@@ -139,7 +130,7 @@ router.post('/', auth, async (req, res, next) => {
 });
 
 // POST /bookings/:id/pay - plata simulata; la succes rezervarea devine CONFIRMED si primeste cod QR
-router.post('/:id/pay', requireToken, auth, async (req, res, next) => {
+router.post('/:id/pay', requireAuth, async (req, res, next) => {
   const bookingId = parseBookingId(req.params.id);
   if (!bookingId) {
     return sendError(res, 400, 'VALIDATION', 'Id-ul rezervării nu este valid.');

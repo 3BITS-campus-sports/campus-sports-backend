@@ -4,7 +4,7 @@ const jwtConfig = require('../config/jwt');
 // Middleware autentificare:
 // 1. Daca exista token Bearer in header, il valideaza cu JWT_SECRET
 // 2. Daca nu exista token si este cerere protejata de requireAuth -> 401 UNAUTHORIZED
-// 3. In modul dev, daca nu exista token si nu este requireAuth, se foloseste utilizatorul fallback
+// 3. Fallback doar in modul dev cand este activata explicit variabila ALLOW_DEV_FALLBACK
 function auth(req, res, next) {
   const authHeader = req.headers['authorization'];
   
@@ -21,17 +21,22 @@ function auth(req, res, next) {
     }
   }
 
-  // Fallback utilizator test pentru laborator (Student ID 1 - Cosmin Flocea)
-  req.user = {
-    id: 1,
-    role: 'STUDENT',
-    email: 'cosmin.flocea@student.usv.ro'
-  };
-  
+  // Permite fallback doar in dezvoltare cand este cerut explicit
+  if (process.env.NODE_ENV !== 'production' && process.env.ALLOW_DEV_FALLBACK === 'true') {
+    req.user = {
+      id: 1,
+      role: 'STUDENT',
+      email: 'cosmin.flocea@student.usv.ro'
+    };
+    return next();
+  }
+
+  // Fara token, utilizatorul este null (rutele protejate cu requireAuth vor respinge cererea)
+  req.user = null;
   next();
 }
 
-// Cerere stricta de token (blocheaza cererile fara header Authorization)
+// Cerere stricta de token (blocheaza cererile fara token valid)
 function requireAuth(req, res, next) {
   const authHeader = req.headers['authorization'];
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -39,7 +44,14 @@ function requireAuth(req, res, next) {
       error: { code: 'UNAUTHORIZED', message: 'Autentificare necesară. Token-ul JWT lipsește.' }
     });
   }
-  return auth(req, res, next);
+  return auth(req, res, () => {
+    if (!req.user) {
+      return res.status(401).json({
+        error: { code: 'UNAUTHORIZED', message: 'Autentificare necesară. Token-ul JWT lipsește sau este invalid.' }
+      });
+    }
+    next();
+  });
 }
 
 // Verificare roluri permise (de ex. ['RECEPTIONIST', 'ADMIN'])
