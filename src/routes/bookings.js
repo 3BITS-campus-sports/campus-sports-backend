@@ -65,7 +65,77 @@ function validateBookingBody(body) {
   return errors;
 }
 
-// POST /api/v1/bookings - Creare rezervare noua cu salvare in PostgreSQL (KAN-30)
+// =========================================================================
+// 1. GET /api/v1/bookings/my-bookings - Lista rezervărilor utilizatorului (KAN-59)
+// =========================================================================
+router.get('/my-bookings', requireAuth, async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const { scope } = req.query;
+
+    let filterScope = '';
+    if (scope === 'upcoming') {
+      filterScope = 'AND is_upcoming = TRUE';
+    } else if (scope === 'history') {
+      filterScope = 'AND is_upcoming = FALSE';
+    }
+
+    const [bookings] = await sequelize.query(
+      `SELECT * FROM v_booking_details 
+       WHERE user_id = :userId ${filterScope} 
+       ORDER BY start_time ${scope === 'history' ? 'DESC' : 'ASC'}`,
+      { replacements: { userId } }
+    );
+
+    res.json(bookings);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// =========================================================================
+// 2. GET /api/v1/bookings/:id - Detalii rezervare cu echipamente incluse (KAN-59)
+// =========================================================================
+router.get('/:id', requireAuth, async (req, res, next) => {
+  const bookingId = parseBookingId(req.params.id);
+  if (!bookingId) {
+    return sendError(res, 400, 'VALIDATION', 'Id-ul rezervării nu este valid.');
+  }
+
+  try {
+    const [[booking]] = await sequelize.query(
+      'SELECT * FROM v_booking_details WHERE booking_id = :id',
+      { replacements: { id: bookingId } }
+    );
+
+    if (!booking) {
+      return sendError(res, 404, 'NOT_FOUND', 'Rezervarea nu a fost găsită.');
+    }
+
+    if (Number(booking.user_id) !== Number(req.user.id) && req.user.role !== 'ADMIN') {
+      return sendError(res, 403, 'FORBIDDEN', 'Nu ai permisiunea de a vizualiza rezervarea altui utilizator.');
+    }
+
+    const [equipment] = await sequelize.query(
+      `SELECT be.equipment_id AS "equipmentId", ei.name, be.quantity, ei.price_per_item AS "pricePerItem"
+       FROM booking_equipment be
+       JOIN equipment_inventory ei ON ei.equipment_id = be.equipment_id
+       WHERE be.booking_id = :id`,
+      { replacements: { id: bookingId } }
+    );
+
+    res.json({
+      ...booking,
+      equipment: equipment || []
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// =========================================================================
+// 3. POST /api/v1/bookings - Creare rezervare nouă cu salvare în PostgreSQL (KAN-30)
+// =========================================================================
 router.post('/', requireAuth, async (req, res, next) => {
   const validationErrors = validateBookingBody(req.body ?? {});
   if (validationErrors.length > 0) {
@@ -77,7 +147,6 @@ router.post('/', requireAuth, async (req, res, next) => {
     const userId = req.user?.id || 1;
 
     const bookingId = await sequelize.transaction(async (t) => {
-      // Daca startTime/endTime sunt timestamp-uri ISO complete sau ore locale (HH:MM)
       const isIso = typeof startTime === 'string' && startTime.includes('T');
       const startExpr = isIso 
         ? 'CAST(:start AS timestamptz)' 
@@ -129,7 +198,9 @@ router.post('/', requireAuth, async (req, res, next) => {
   }
 });
 
-// POST /bookings/:id/pay - plata simulata; la succes rezervarea devine CONFIRMED si primeste cod QR
+// =========================================================================
+// 4. POST /api/v1/bookings/:id/pay - Plată simulată și confirmare cod QR (KAN-53)
+// =========================================================================
 router.post('/:id/pay', requireAuth, async (req, res, next) => {
   const bookingId = parseBookingId(req.params.id);
   if (!bookingId) {
@@ -142,7 +213,6 @@ router.post('/:id/pay', requireAuth, async (req, res, next) => {
 
   try {
     const outcome = await sequelize.transaction(async (t) => {
-      // FOR UPDATE: doua cereri de plata pentru aceeasi rezervare se executa una dupa alta
       const [[booking]] = await sequelize.query(
         'SELECT user_id, total_amount FROM bookings WHERE booking_id = :id FOR UPDATE',
         { transaction: t, replacements: { id: bookingId } });
@@ -151,7 +221,6 @@ router.post('/:id/pay', requireAuth, async (req, res, next) => {
 
       const amount = Number(booking.total_amount);
       if (amount === 0) {
-        // Acces gratuit: nu exista tranzactie, rezervarea se confirma direct (cu cod QR)
         await sequelize.query('SELECT confirm_free_booking(:id)',
           { transaction: t, replacements: { id: bookingId } });
         await setEncryptedQrToken(bookingId, t);
@@ -159,7 +228,6 @@ router.post('/:id/pay', requireAuth, async (req, res, next) => {
       }
 
       const transactionRef = `SIM-${crypto.randomUUID()}`;
-      // register_payment: tranzactie PENDING + rezultat; la succes apeleaza fn_confirm_booking (cod QR)
       await sequelize.query('SELECT register_payment(:id, :method, :ref, :success)', {
         transaction: t,
         replacements: { id: bookingId, method, ref: transactionRef, success: simulateResult === 'SUCCESS' },
@@ -184,14 +252,13 @@ router.post('/:id/pay', requireAuth, async (req, res, next) => {
       bookingId,
       paymentRequired: outcome.paymentRequired,
       transactionRef: outcome.transactionRef,
-      clientSecret: null,   // exista doar la un procesator real (ex. Stripe)
+      clientSecret: null,
       amount: outcome.amount,
       currency: CURRENCY,
       booking,
     };
 
     if (outcome.status === 402) {
-      // Rezervarea ramane PENDING_PAYMENT: utilizatorul poate reincerca pana expira cele 5 minute
       return res.status(402).json({
         error: { code: 'PAYMENT_FAILED', message: 'Plata a fost refuzată. Poți reîncerca până expiră rezervarea.' },
         ...session,
@@ -199,6 +266,56 @@ router.post('/:id/pay', requireAuth, async (req, res, next) => {
     }
     res.json(session);
   } catch (e) { next(e); }
+});
+
+// =========================================================================
+// 5. POST /api/v1/bookings/:id/cancel - Anulare rezervare (KAN-60, KAN-61)
+// =========================================================================
+router.post('/:id/cancel', requireAuth, async (req, res, next) => {
+  const bookingId = parseBookingId(req.params.id);
+  if (!bookingId) {
+    return sendError(res, 400, 'VALIDATION', 'Id-ul rezervării nu este valid.');
+  }
+
+  const userId = req.user.id;
+  const { reason } = req.body ?? {};
+
+  try {
+    await sequelize.query(
+      'SELECT cancel_booking(:bookingId, :userId)',
+      { replacements: { bookingId, userId } }
+    );
+
+    const [[updatedBooking]] = await sequelize.query(
+      'SELECT * FROM v_booking_details WHERE booking_id = :id',
+      { replacements: { id: bookingId } }
+    );
+
+    res.json({
+      message: 'Rezervarea a fost anulată cu succes. Intervalul orar a fost eliberat.',
+      reason: reason || 'Anulare la cererea utilizatorului',
+      booking: updatedBooking
+    });
+  } catch (err) {
+    const msg = err.original?.message || err.message || '';
+    const code = err.original?.code || '';
+
+    // Gestionare erori specifice procedurii PostgreSQL (KAN-61)
+    if (code === 'SB404' || msg.includes('nu exista')) {
+      return sendError(res, 404, 'NOT_FOUND', 'Rezervarea specificată nu există.');
+    }
+    if (code === 'SB403' || msg.includes('altui utilizator')) {
+      return sendError(res, 403, 'FORBIDDEN', 'Nu poți anula rezervarea altui utilizator.');
+    }
+    if (code === 'SB400' || msg.includes('minimum 24 de ore')) {
+      return sendError(res, 400, 'CANCEL_TOO_LATE', 'Anularea este posibilă doar cu minimum 24 de ore înainte de oră.');
+    }
+    if (code === 'SB400' || msg.includes('nu mai poate fi anulata')) {
+      return sendError(res, 400, 'CANCEL_NOT_ALLOWED', 'Rezervarea nu mai poate fi anulată (deja finalizată sau anulată).');
+    }
+
+    next(err);
+  }
 });
 
 module.exports = router;
