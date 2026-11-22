@@ -1240,7 +1240,11 @@ components:
         qrCodePayload:
           type: string
           nullable: true
-          description: Null până la confirmarea plății și după anulare.
+          example: CSB1.JlIsoLEC981-RUR39Ef1VBh4LpLRCnqTFSBtheh9clZUYtQW_grOUgkyampnxCAM2Ow
+          description: >
+            Tokenul din codul QR (KAN-32): `CSB1.` urmat de date criptate cu AES-256-GCM (id-ul rezervării și
+            momentul emiterii), cu cheie derivată din `JWT_SECRET`. Nu poate fi citit sau modificat fără cheie.
+            Interfața desenează imaginea QR din acest text. Null până la confirmarea plății și după anulare.
         equipment:
           type: array
           items:
