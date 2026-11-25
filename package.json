@@ -4,7 +4,8 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "db:check": "node src/check_db.js"
+    "db:check": "node src/check_db.js",
+    "set-password": "node src/set_password.js"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
