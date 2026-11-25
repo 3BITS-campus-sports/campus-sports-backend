@@ -334,11 +334,12 @@ router.post('/:id/cancel', requireAuth, async (req, res, next) => {
     if (code === 'SB403' || msg.includes('altui utilizator')) {
       return sendError(res, 403, 'FORBIDDEN', 'Nu poți anula rezervarea altui utilizator.');
     }
-    if (code === 'SB400' || msg.includes('minimum 24 de ore')) {
-      return sendError(res, 400, 'CANCEL_TOO_LATE', 'Anularea este posibilă doar cu minimum 24 de ore înainte de oră.');
-    }
-    if (code === 'SB400' || msg.includes('nu mai poate fi anulata')) {
+    // Ambele erori de mai jos au codul SB400 in cancel_booking, deci le deosebim dupa text (KAN-72)
+    if (msg.includes('nu mai poate fi anulata')) {
       return sendError(res, 400, 'CANCEL_NOT_ALLOWED', 'Rezervarea nu mai poate fi anulată (deja finalizată sau anulată).');
+    }
+    if (msg.includes('minimum 24 de ore')) {
+      return sendError(res, 400, 'CANCEL_TOO_LATE', 'Anularea este posibilă doar cu minimum 24 de ore înainte de oră.');
     }
 
     next(err);
