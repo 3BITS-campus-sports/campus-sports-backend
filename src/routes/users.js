@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const sequelize = require('../db');
 const bcrypt = require('bcrypt');
+const {requireAuth, requireRole} = require('../middleware/auth');
 
 // Valorile permise de enum-ul user_role_enum din baza de date.
 const ROLES = ['STUDENT', 'PROFESSOR', 'AMATEUR', 'RECEPTIONIST', 'ADMIN'];
@@ -71,6 +72,9 @@ function sendBadRequest(res, message) {
 function normalizePhone(phone) {
   return phone ? phone.trim() : null;
 }
+
+// Toate rutele /users sunt doar pentru administrator: fara token -> 401, alt rol -> 403
+router.use(requireAuth, requireRole(['ADMIN']));
 
 // GET /api/v1/users - Listare utilizatori din PostgreSQL (Admin)
 router.get('/', async (req, res, next) => {

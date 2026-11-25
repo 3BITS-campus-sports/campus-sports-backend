@@ -2,6 +2,10 @@ const router = require('express').Router();
 const jwt = require('jsonwebtoken');
 const sequelize = require('../db');
 const jwtConfig = require('../config/jwt');
+const {requireAuth, requireRole} = require('../middleware/auth');
+
+// Adaugarea si modificarea facilitatilor sunt doar pentru administrator
+const adminOnly = [requireAuth, requireRole(['ADMIN'])];
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -153,7 +157,7 @@ router.get('/:id/availability', async (req, res, next) => {
 });
 
 // POST /api/v1/facilities - Adaugare facilitate noua (Admin)
-router.post('/', async (req, res, next) => {
+router.post('/', adminOnly, async (req, res, next) => {
   try {
     const {
       name,
@@ -190,7 +194,7 @@ router.post('/', async (req, res, next) => {
 });
 
 // PUT /api/v1/facilities/:id - Actualizare facilitate existenta (Admin)
-router.put('/:id', async (req, res, next) => {
+router.put('/:id', adminOnly, async (req, res, next) => {
   try {
     const { id } = req.params;
     const {

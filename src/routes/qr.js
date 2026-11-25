@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const sequelize = require('../db');
-const { auth } = require('../middleware/auth');
+const { requireAuth, requireRole } = require('../middleware/auth');
 const { readQrToken } = require('../services/qrToken');
 
 function sendError(res, status, code, message) {
@@ -12,7 +12,7 @@ function sendError(res, status, code, message) {
  * Receptionerul scaneaza codul QR prezentat de student/utilizator.
  * Endpoint-ul decripteaza tokenul AES-256-GCM si apeleaza procedura SQL validate_qr().
  */
-router.post('/validate', auth, async (req, res, next) => {
+router.post('/validate', requireAuth, requireRole(['RECEPTIONIST', 'ADMIN']), async (req, res, next) => {
   const { token, payload } = req.body ?? {};
   const qrString = token || payload;
 
@@ -28,16 +28,8 @@ router.post('/validate', auth, async (req, res, next) => {
     return sendError(res, 400, 'VALIDATION', 'Codul QR este invalid, corupt sau a fost modificat neautorizat.');
   }
 
-  // 2. Determinare ID receptioner (rol RECEPTIONIST sau ADMIN)
-  // Daca utilizatorul autentificat este RECEPTIONIST sau ADMIN, folosim id-ul sau.
-  // In mediul de laborator/test, daca se apeleaza fara token de receptie, fallback la user_id 5 (Receptie Baza Sportiva).
-  let receptionistId = req.user?.id;
-  const userRole = req.user?.role;
-
-  if (!userRole || (userRole !== 'RECEPTIONIST' && userRole !== 'ADMIN')) {
-    // In mediul de test folosim ID-ul receptionerului din baza de date
-    receptionistId = 5;
-  }
+  // 2. Receptionerul este utilizatorul autentificat (requireRole a verificat deja ca e RECEPTIONIST sau ADMIN)
+  const receptionistId = req.user.id;
 
   try {
     // 3. Apel procedura validate_qr din PostgreSQL
