@@ -9,6 +9,7 @@ const { createQrToken } = require('../services/qrToken');
 const PAYMENT_METHODS = ['CARD_ONLINE', 'APPLE_PAY', 'GOOGLE_PAY'];
 const SIMULATED_RESULTS = ['SUCCESS', 'FAILED'];
 const CURRENCY = 'RON';
+const MAX_EQUIPMENT_QUANTITY = 10;
 
 function sendError(res, status, code, message) {
   return res.status(status).json({ error: { code, message } });
@@ -44,7 +45,7 @@ function validatePayBody(body) {
 // Validare date rezervare (KAN-30)
 function validateBookingBody(body) {
   const errors = [];
-  const { facilityId, bookingDate, startTime, endTime, seats } = body;
+  const { facilityId, bookingDate, startTime, endTime, seats, equipment } = body;
 
   const fid = Number(facilityId);
   if (!facilityId || !Number.isInteger(fid) || fid <= 0) {
@@ -61,6 +62,16 @@ function validateBookingBody(body) {
   }
   if (seats !== undefined && (!Number.isInteger(Number(seats)) || Number(seats) < 1)) {
     errors.push('Numărul de locuri rezervate trebuie să fie cel puțin 1.');
+  }
+  // Echipament inchiriat (KAN-71): [{ equipmentId, quantity }], cantitate intre 1 si 10
+  if (equipment !== undefined) {
+    const validItem = (item) => item && Number.isInteger(item.equipmentId) && item.equipmentId > 0 &&
+      Number.isInteger(item.quantity) && item.quantity >= 1 && item.quantity <= MAX_EQUIPMENT_QUANTITY;
+    if (!Array.isArray(equipment) || !equipment.every(validItem)) {
+      errors.push(`Echipamentul trebuie trimis ca listă de { equipmentId, quantity }, cu cantitatea între 1 și ${MAX_EQUIPMENT_QUANTITY}.`);
+    } else if (new Set(equipment.map((item) => item.equipmentId)).size !== equipment.length) {
+      errors.push('Fiecare echipament poate apărea o singură dată în listă.');
+    }
   }
   return errors;
 }
@@ -116,11 +127,14 @@ router.get('/:id', requireAuth, async (req, res, next) => {
       return sendError(res, 403, 'FORBIDDEN', 'Nu ai permisiunea de a vizualiza rezervarea altui utilizator.');
     }
 
+    // Tabelul din schema se numeste equipment (pret pe ora: hourly_fee); cost = costul calculat de trigger
     const [equipment] = await sequelize.query(
-      `SELECT be.equipment_id AS "equipmentId", ei.name, be.quantity, ei.price_per_item AS "pricePerItem"
+      `SELECT be.equipment_id AS "equipmentId", e.name, be.quantity,
+              e.hourly_fee AS "hourlyFee", be.cost
        FROM booking_equipment be
-       JOIN equipment_inventory ei ON ei.equipment_id = be.equipment_id
-       WHERE be.booking_id = :id`,
+       JOIN equipment e ON e.equipment_id = be.equipment_id
+       WHERE be.booking_id = :id
+       ORDER BY be.equipment_id`,
       { replacements: { id: bookingId } }
     );
 
@@ -173,16 +187,25 @@ router.post('/', requireAuth, async (req, res, next) => {
         }
       );
 
+      // Echipamentul trebuie sa fie pentru sportul facilitatii (ex. ochelari de inot doar la bazin).
+      // Triggerul trg_booking_equipment_bi verifica stocul si adauga costul la totalul rezervarii.
       for (const eq of equipment ?? []) {
-        if (eq.equipmentId && eq.quantity > 0) {
-          await sequelize.query(
-            'INSERT INTO booking_equipment (booking_id, equipment_id, quantity) VALUES (:b, :e, :q)',
-            {
-              transaction: t,
-              replacements: { b: booking_id, e: eq.equipmentId, q: eq.quantity },
-            }
-          );
+        const [[match]] = await sequelize.query(
+          `SELECT e.equipment_id FROM equipment e
+             JOIN sport_facilities f ON f.sport_type = e.sport_category
+            WHERE e.equipment_id = :e AND f.facility_id = :f`,
+          { transaction: t, replacements: { e: eq.equipmentId, f: Number(facilityId) } }
+        );
+        if (!match) {
+          throw Object.assign(new Error('Echipament nepotrivit'), { equipmentMismatch: eq.equipmentId });
         }
+        await sequelize.query(
+          'INSERT INTO booking_equipment (booking_id, equipment_id, quantity) VALUES (:b, :e, :q)',
+          {
+            transaction: t,
+            replacements: { b: booking_id, e: eq.equipmentId, q: eq.quantity },
+          }
+        );
       }
       return booking_id;
     });
@@ -194,6 +217,10 @@ router.post('/', requireAuth, async (req, res, next) => {
 
     res.status(201).json(booking);
   } catch (e) {
+    if (e.equipmentMismatch) {
+      return sendError(res, 400, 'VALIDATION',
+        `Echipamentul ${e.equipmentMismatch} nu există sau nu este pentru această facilitate.`);
+    }
     next(e);
   }
 });

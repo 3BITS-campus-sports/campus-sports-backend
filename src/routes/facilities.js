@@ -156,6 +156,44 @@ router.get('/:id/availability', async (req, res, next) => {
   }
 });
 
+// GET /api/v1/facilities/:id/equipment - Echipamentele de inchiriat pentru sportul facilitatii (KAN-71)
+// Ex.: Bazin (Natație) -> ochelari, boneta, pluta. Pretul este pe bucata si pe ora rezervata.
+router.get('/:id/equipment', async (req, res, next) => {
+  const facilityId = Number(req.params.id);
+  if (!Number.isInteger(facilityId) || facilityId <= 0) {
+    return res.status(400).json({
+      error: {code: 'VALIDATION', message: 'Id-ul facilității trebuie să fie un număr întreg pozitiv.'},
+    });
+  }
+
+  try {
+    const [[facility]] = await sequelize.query(
+      'SELECT sport_type FROM sport_facilities WHERE facility_id = :facilityId AND is_active',
+      {replacements: {facilityId}});
+    if (!facility) {
+      return res.status(404).json({
+        error: {code: 'SB404', message: 'Facilitatea nu există sau nu este activă.'},
+      });
+    }
+
+    const [equipment] = await sequelize.query(`
+      SELECT equipment_id, name, hourly_fee, available_stock
+        FROM equipment
+       WHERE sport_category = :sportType AND available_stock > 0
+       ORDER BY equipment_id
+    `, {replacements: {sportType: facility.sport_type}});
+
+    res.json(equipment.map((item) => ({
+      equipmentId: item.equipment_id,
+      name: item.name,
+      hourlyFee: Number(item.hourly_fee),
+      availableStock: item.available_stock,
+    })));
+  } catch (err) {
+    next(err);
+  }
+});
+
 // POST /api/v1/facilities - Adaugare facilitate noua (Admin)
 router.post('/', adminOnly, async (req, res, next) => {
   try {

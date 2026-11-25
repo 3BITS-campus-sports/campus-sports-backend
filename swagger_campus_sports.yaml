@@ -441,19 +441,22 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
-  /equipment:
+  /facilities/{id}/equipment:
     get:
       tags: [Facilități Sportive & Hartă]
-      operationId: listEquipment
-      summary: Echipamente închiriabile
-      description: Echipamentele opționale afișate pe ecranul de detalii (ex. ochelari de înot 4 RON).
+      operationId: listFacilityEquipment
+      summary: Echipamente închiriabile pentru o facilitate
+      description: >
+        Echipamentele cu stoc disponibil pentru sportul facilității (ex. la Bazin: ochelari, bonetă, plută).
+        Costul se calculează pe bucată și pe ora rezervată și se adaugă la totalul rezervării (KAN-71).
+      security: []
       parameters:
-        - name: sportCategory
-          in: query
-          required: false
+        - name: id
+          in: path
+          required: true
           schema:
-            type: string
-            enum: [Fotbal, Tenis, Natație]
+            type: integer
+          example: 3
       responses:
         '200':
           description: Lista echipamentelor
@@ -463,8 +466,18 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Equipment'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
+        '400':
+          description: Id invalid (cod VALIDATION)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Facilitatea nu există sau nu este activă (cod SB404)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   # ==========================================
   # 3. TARIFE
@@ -1199,9 +1212,6 @@ components:
         name:
           type: string
           example: Ochelari de înot
-        sportCategory:
-          type: string
-          example: Natație
         availableStock:
           type: integer
         hourlyFee:
@@ -1218,6 +1228,7 @@ components:
         quantity:
           type: integer
           minimum: 1
+          maximum: 10
           example: 2
 
     PriceBreakdown:
