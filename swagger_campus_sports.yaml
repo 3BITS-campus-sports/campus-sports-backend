@@ -112,7 +112,8 @@ paths:
       summary: Înregistrare utilizator nou
       description: >
         Creează un cont public (Student, Profesor sau Amator) și profilul asociat.
-        Obligatorii sunt doar numele, emailul și parola; datele din profil sunt opționale.
+        Obligatorii pentru toți: numele, emailul, telefonul, parola și rolul.
+        Pentru `STUDENT` sunt obligatorii și `matricolNumber` și `faculty` (KAN-69).
         Conturile `RECEPTIONIST` și `ADMIN` se creează doar de administrator.
       security: []
       requestBody:
@@ -121,7 +122,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [fullName, email, password]
+              required: [fullName, email, phone, password, roleType]
               properties:
                 fullName:
                   type: string
@@ -132,8 +133,8 @@ paths:
                   example: ana.popescu@stud.univ.ro
                 phone:
                   type: string
-                  nullable: true
-                  example: "0721000000"
+                  description: Între 10 și 15 cifre; sunt permise spații, „+”, „-”, „.” și paranteze.
+                  example: "0721 000 000"
                 password:
                   type: string
                   format: password
@@ -141,14 +142,16 @@ paths:
                 roleType:
                   type: string
                   enum: [STUDENT, PROFESSOR, AMATEUR]
-                  default: STUDENT
                 matricolNumber:
                   type: string
                   nullable: true
+                  description: Obligatoriu pentru STUDENT (2–40 caractere, litere, cifre, „/”, „-”, „.”). Se salvează cu majuscule.
                   example: "3BITS-001"
                 faculty:
                   type: string
                   nullable: true
+                  description: Obligatoriu pentru STUDENT.
+                  example: Facultatea de Inginerie Electrică și Știința Calculatoarelor
                 studyYear:
                   type: integer
                   minimum: 1
@@ -171,7 +174,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/User'
         '400':
-          description: Date de intrare invalide (parolă < 8 caractere, email invalid, rol nepermis)
+          description: >
+            Date de intrare invalide (parolă < 8 caractere, email invalid, telefon lipsă sau invalid,
+            rol nepermis, matricol sau facultate lipsă la STUDENT)
           content:
             application/json:
               schema:
@@ -230,6 +235,10 @@ paths:
       summary: Listare utilizatori (panoul Admin)
       description: Toți utilizatorii, cu datele de profil de student sau profesor. Hash-ul parolei nu este returnat.
       responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '200':
           description: Lista utilizatorilor
           content:
@@ -252,6 +261,10 @@ paths:
             schema:
               $ref: '#/components/schemas/AdminUserCreate'
       responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '201':
           description: Utilizator creat
           content:
@@ -294,6 +307,10 @@ paths:
             schema:
               $ref: '#/components/schemas/AdminUserUpdate'
       responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '200':
           description: Utilizator actualizat
           content:
@@ -424,19 +441,22 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
-  /equipment:
+  /facilities/{id}/equipment:
     get:
       tags: [Facilități Sportive & Hartă]
-      operationId: listEquipment
-      summary: Echipamente închiriabile
-      description: Echipamentele opționale afișate pe ecranul de detalii (ex. ochelari de înot 4 RON).
+      operationId: listFacilityEquipment
+      summary: Echipamente închiriabile pentru o facilitate
+      description: >
+        Echipamentele cu stoc disponibil pentru sportul facilității (ex. la Bazin: ochelari, bonetă, plută).
+        Costul se calculează pe bucată și pe ora rezervată și se adaugă la totalul rezervării (KAN-71).
+      security: []
       parameters:
-        - name: sportCategory
-          in: query
-          required: false
+        - name: id
+          in: path
+          required: true
           schema:
-            type: string
-            enum: [Fotbal, Tenis, Natație]
+            type: integer
+          example: 3
       responses:
         '200':
           description: Lista echipamentelor
@@ -446,8 +466,18 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Equipment'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
+        '400':
+          description: Id invalid (cod VALIDATION)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Facilitatea nu există sau nu este activă (cod SB404)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   # ==========================================
   # 3. TARIFE
@@ -906,6 +936,12 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Rolul utilizatorului nu are acces la această operațiune (de ex. doar ADMIN)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
 
   schemas:
     Error:
@@ -916,7 +952,7 @@ components:
           properties:
             code:
               type: string
-              enum: [SB400, SB403, SB404, SB409, OVERLAP, UNAUTHORIZED, VALIDATION]
+              enum: [SB400, SB403, SB404, SB409, OVERLAP, UNAUTHORIZED, FORBIDDEN, VALIDATION]
               example: SB409
             message:
               type: string
@@ -959,6 +995,21 @@ components:
         roleType:
           type: string
           enum: [STUDENT, PROFESSOR, AMATEUR, RECEPTIONIST, ADMIN]
+        matricolNumber:
+          type: string
+          nullable: true
+          description: Doar pentru STUDENT
+        faculty:
+          type: string
+          nullable: true
+          description: Doar pentru STUDENT
+        studyYear:
+          type: integer
+          nullable: true
+        department:
+          type: string
+          nullable: true
+          description: Doar pentru PROFESSOR
         settings:
           $ref: '#/components/schemas/UserSettings'
 
@@ -1161,9 +1212,6 @@ components:
         name:
           type: string
           example: Ochelari de înot
-        sportCategory:
-          type: string
-          example: Natație
         availableStock:
           type: integer
         hourlyFee:
@@ -1180,6 +1228,7 @@ components:
         quantity:
           type: integer
           minimum: 1
+          maximum: 10
           example: 2
 
     PriceBreakdown:

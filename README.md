@@ -68,3 +68,11 @@ npm run db:check
 npm start
 ```
 Serverul va rula la adresa: `http://localhost:5000/api/v1`
+
+### 4. Conturile de Admin și Recepție
+Panoul Admin (`/users`, adăugare și modificare facilități) este permis doar rolului `ADMIN`, iar scanarea codurilor QR doar rolurilor `RECEPTIONIST` și `ADMIN`. Conturile din datele de test au un hash de parolă fictiv, deci înainte de prima autentificare setează-le o parolă:
+```bash
+npm run set-password -- admin@campussports.ro ParolaAdmin123
+npm run set-password -- receptie@campussports.ro ParolaReceptie123
+```
+Alege parolele tale (minim 8 caractere, cel puțin o literă și o cifră) și nu le scrie în repository.
