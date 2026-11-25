@@ -112,7 +112,8 @@ paths:
       summary: Înregistrare utilizator nou
       description: >
         Creează un cont public (Student, Profesor sau Amator) și profilul asociat.
-        Obligatorii sunt doar numele, emailul și parola; datele din profil sunt opționale.
+        Obligatorii pentru toți: numele, emailul, telefonul, parola și rolul.
+        Pentru `STUDENT` sunt obligatorii și `matricolNumber` și `faculty` (KAN-69).
         Conturile `RECEPTIONIST` și `ADMIN` se creează doar de administrator.
       security: []
       requestBody:
@@ -121,7 +122,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [fullName, email, password]
+              required: [fullName, email, phone, password, roleType]
               properties:
                 fullName:
                   type: string
@@ -132,8 +133,8 @@ paths:
                   example: ana.popescu@stud.univ.ro
                 phone:
                   type: string
-                  nullable: true
-                  example: "0721000000"
+                  description: Între 10 și 15 cifre; sunt permise spații, „+”, „-”, „.” și paranteze.
+                  example: "0721 000 000"
                 password:
                   type: string
                   format: password
@@ -141,14 +142,16 @@ paths:
                 roleType:
                   type: string
                   enum: [STUDENT, PROFESSOR, AMATEUR]
-                  default: STUDENT
                 matricolNumber:
                   type: string
                   nullable: true
+                  description: Obligatoriu pentru STUDENT (2–40 caractere, litere, cifre, „/”, „-”, „.”). Se salvează cu majuscule.
                   example: "3BITS-001"
                 faculty:
                   type: string
                   nullable: true
+                  description: Obligatoriu pentru STUDENT.
+                  example: Facultatea de Inginerie Electrică și Știința Calculatoarelor
                 studyYear:
                   type: integer
                   minimum: 1
@@ -171,7 +174,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/User'
         '400':
-          description: Date de intrare invalide (parolă < 8 caractere, email invalid, rol nepermis)
+          description: >
+            Date de intrare invalide (parolă < 8 caractere, email invalid, telefon lipsă sau invalid,
+            rol nepermis, matricol sau facultate lipsă la STUDENT)
           content:
             application/json:
               schema:
@@ -977,6 +982,21 @@ components:
         roleType:
           type: string
           enum: [STUDENT, PROFESSOR, AMATEUR, RECEPTIONIST, ADMIN]
+        matricolNumber:
+          type: string
+          nullable: true
+          description: Doar pentru STUDENT
+        faculty:
+          type: string
+          nullable: true
+          description: Doar pentru STUDENT
+        studyYear:
+          type: integer
+          nullable: true
+        department:
+          type: string
+          nullable: true
+          description: Doar pentru PROFESSOR
         settings:
           $ref: '#/components/schemas/UserSettings'
 

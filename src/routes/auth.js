@@ -12,6 +12,13 @@ const MIN_PASSWORD_LENGTH = 8;
 const PASSWORD_LETTER = /[A-Za-zĂÂÎȘȚăâîșț]/;
 const PASSWORD_DIGIT = /\d/;
 const MAX_PHONE_LENGTH = 20;
+// Telefon: cifre, spatii, +, -, ., paranteze; intre 10 si 15 cifre (ex. 0722 123 456 sau +40 722 123 456)
+const PHONE_CHARS = /^\+?[\d\s().-]+$/;
+const MIN_PHONE_DIGITS = 10;
+const MAX_PHONE_DIGITS = 15;
+// Numar matricol: litere, cifre, /, - si . (ex. 3BITS-001, 1234/2023)
+const MATRICOL_PATTERN = /^[A-Za-z0-9/.-]{2,40}$/;
+const MAX_FACULTY_LENGTH = 150;
 
 // Acelasi mesaj pentru email inexistent si parola gresita, ca sa nu aflam cine are cont
 const INVALID_CREDENTIALS = 'Email sau parolă incorectă.';
@@ -58,6 +65,11 @@ function toUser(row) {
     email: row.email,
     phone: row.phone_number,
     roleType: row.role_type,
+    // Datele de profil (null daca rolul nu le are): student -> matricol, facultate; profesor -> departament
+    matricolNumber: row.matricol_number ?? null,
+    faculty: row.faculty ?? null,
+    studyYear: row.study_year ?? null,
+    department: row.department ?? null,
     settings: {
       preferredLanguage: row.preferred_language,
       preferredCurrency: row.preferred_currency,
@@ -67,8 +79,31 @@ function toUser(row) {
   };
 }
 
-const USER_COLUMNS = `user_id, full_name, email, phone_number, role_type, is_active,
-  preferred_language, preferred_currency, dark_mode, reminder_minutes_before`;
+const USER_COLUMNS = `u.user_id, u.full_name, u.email, u.phone_number, u.role_type, u.is_active,
+  u.preferred_language, u.preferred_currency, u.dark_mode, u.reminder_minutes_before,
+  sp.matricol_number, sp.faculty, sp.study_year, pp.department`;
+
+// Utilizatorul impreuna cu profilul lui de student sau profesor (daca exista)
+const USER_FROM = `users u
+  LEFT JOIN student_profiles sp ON sp.user_id = u.user_id
+  LEFT JOIN professor_profiles pp ON pp.user_id = u.user_id`;
+
+/**
+ * Verifica numarul de telefon (obligatoriu pentru toate rolurile).
+ * @param {*} phone Valoarea primita.
+ * @return {?string} Mesajul de eroare sau null daca telefonul este valid.
+ */
+function phoneError(phone) {
+  if (typeof phone !== 'string' || phone.trim() === '') {
+    return 'Numărul de telefon este obligatoriu.';
+  }
+  const digits = phone.replace(/\D/g, '').length;
+  if (phone.length > MAX_PHONE_LENGTH || !PHONE_CHARS.test(phone.trim()) ||
+      digits < MIN_PHONE_DIGITS || digits > MAX_PHONE_DIGITS) {
+    return `Telefonul trebuie să aibă între ${MIN_PHONE_DIGITS} și ${MAX_PHONE_DIGITS} cifre (ex. 0722 123 456).`;
+  }
+  return null;
+}
 
 /**
  * Verifica datele de inregistrare.
@@ -77,7 +112,7 @@ const USER_COLUMNS = `user_id, full_name, email, phone_number, role_type, is_act
  */
 function validateRegister(body) {
   const errors = [];
-  const {fullName, email, password, phone, roleType, studyYear} = body;
+  const {fullName, email, password, phone, roleType, matricolNumber, faculty, studyYear} = body;
 
   if (typeof fullName !== 'string' || fullName.trim() === '') {
     errors.push('Numele este obligatoriu.');
@@ -90,12 +125,22 @@ function validateRegister(body) {
   } else if (!PASSWORD_LETTER.test(password) || !PASSWORD_DIGIT.test(password)) {
     errors.push('Parola trebuie să conțină cel puțin o literă și o cifră.');
   }
-  if (phone !== undefined && phone !== null && phone !== '' &&
-      (typeof phone !== 'string' || phone.length > MAX_PHONE_LENGTH)) {
-    errors.push(`Telefonul poate avea maxim ${MAX_PHONE_LENGTH} caractere.`);
+  const phoneMessage = phoneError(phone);
+  if (phoneMessage) {
+    errors.push(phoneMessage);
   }
-  if (roleType !== undefined && !PUBLIC_ROLES.includes(roleType)) {
+  if (!PUBLIC_ROLES.includes(roleType)) {
     errors.push(`Rolul trebuie să fie unul dintre: ${PUBLIC_ROLES.join(', ')}.`);
+  }
+  // Studentii trebuie sa-si completeze numarul matricol si facultatea (KAN-69)
+  if (roleType === 'STUDENT') {
+    if (typeof matricolNumber !== 'string' || !MATRICOL_PATTERN.test(matricolNumber.trim())) {
+      errors.push('Numărul matricol este obligatoriu (2–40 de caractere: litere, cifre, „/”, „-”, „.”).');
+    }
+    if (typeof faculty !== 'string' || faculty.trim().length < 3 ||
+        faculty.trim().length > MAX_FACULTY_LENGTH) {
+      errors.push('Facultatea este obligatorie.');
+    }
   }
   if (studyYear !== undefined && studyYear !== null &&
       !(Number.isInteger(studyYear) && studyYear >= 1 && studyYear <= 6)) {
@@ -112,9 +157,10 @@ router.post('/register', async (req, res, next) => {
   }
 
   const {
-    fullName, email, password, phone, roleType = 'STUDENT',
+    fullName, email, password, phone, roleType,
     matricolNumber, faculty, studyYear, department, academicTitle, organization,
   } = req.body;
+  const isStudent = roleType === 'STUDENT';
 
   try {
     const passwordHash = await bcrypt.hash(password, 10);
@@ -131,12 +177,13 @@ router.post('/register', async (req, res, next) => {
         fullName: fullName.trim(),
         // Emailul se salveaza mereu cu litere mici (comentariu code review PR #4)
         email: email.trim().toLowerCase(),
-        phone: phone ? phone.trim() : null,
+        phone: phone.trim(),
         passwordHash,
         roleType,
-        matricolNumber: matricolNumber || null,
-        faculty: faculty || null,
-        studyYear: studyYear ?? null,
+        // Matricolul si facultatea se salveaza doar pentru studenti
+        matricolNumber: isStudent ? matricolNumber.trim().toUpperCase() : null,
+        faculty: isStudent ? faculty.trim() : null,
+        studyYear: isStudent ? (studyYear ?? null) : null,
         department: department || null,
         academicTitle: academicTitle || null,
         organization: organization || null,
@@ -144,11 +191,18 @@ router.post('/register', async (req, res, next) => {
     });
 
     const [[user]] = await sequelize.query(
-      `SELECT ${USER_COLUMNS} FROM users WHERE user_id = :userId`,
+      `SELECT ${USER_COLUMNS} FROM ${USER_FROM} WHERE u.user_id = :userId`,
       {replacements: {userId}});
     res.status(201).json(toUser(user));
   } catch (err) {
-    // Email (sau numar matricol) deja folosit: 23505 -> 409, tratat in middleware/errors.js
+    // Email sau numar matricol deja folosit (23505): mesaj clar in loc de textul din PostgreSQL
+    if (err.original?.code === '23505') {
+      const constraint = err.original.constraint || '';
+      const message = constraint.includes('matricol') ?
+        'Există deja un cont cu acest număr matricol.' :
+        'Există deja un cont cu acest email.';
+      return sendError(res, 409, 'SB409', message);
+    }
     next(err);
   }
 });
@@ -163,7 +217,7 @@ router.post('/login', async (req, res, next) => {
 
   try {
     const [[user]] = await sequelize.query(
-      `SELECT ${USER_COLUMNS}, password_hash FROM users WHERE lower(email) = lower(:email)`,
+      `SELECT ${USER_COLUMNS}, u.password_hash FROM ${USER_FROM} WHERE lower(u.email) = lower(:email)`,
       {replacements: {email: email.trim()}});
 
     const valid = await passwordMatches(password, user ? user.password_hash : DUMMY_HASH);
